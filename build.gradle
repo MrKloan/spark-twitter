@@ -1,0 +1,31 @@
+plugins {
+    id 'com.github.johnrengelman.shadow' version '2.0.4'
+    id 'scala'
+}
+
+group 'fr.esgi.spark'
+version '1.0-SNAPSHOT'
+
+sourceCompatibility = JavaVersion.VERSION_1_8
+
+repositories {
+    jcenter()
+}
+
+dependencies {
+    compileOnly group: 'org.apache.spark', name: "spark-core_${scalaVersion}", version: sparkVersion
+    compileOnly group: 'org.apache.spark', name: "spark-sql_${scalaVersion}", version: sparkVersion
+
+    compile group: 'org.apache.spark', name: "spark-streaming_${scalaVersion}", version: sparkVersion
+    compile group: 'org.apache.bahir', name: "spark-streaming-twitter_${scalaVersion}", version: sparkVersion
+}
+
+shadowJar {
+    zip64 = true
+}
+
+task run(type: JavaExec, dependsOn: classes) {
+    main = 'fr.esgi.spark.twitter.Application'
+    classpath sourceSets.main.runtimeClasspath
+    classpath configurations.runtime
+}
