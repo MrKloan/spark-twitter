@@ -2,7 +2,7 @@ package fr.esgi.spark.twitter
 
 import org.apache.spark.streaming.dstream.ReceiverInputDStream
 import org.apache.spark.streaming.twitter.TwitterUtils
-import org.apache.spark.streaming.{Minutes, Seconds, StreamingContext}
+import org.apache.spark.streaming.{Minutes, StreamingContext}
 import org.apache.spark.util.LongAccumulator
 import org.apache.spark.{SparkConf, SparkContext}
 import twitter4j.Status
@@ -39,30 +39,44 @@ final case class CountryStats(
 
 object Application extends App {
 
-  def computeCountryStreams(sparkContext: SparkContext, twitterStream: ReceiverInputDStream[Status], source: Country, destination: Country): CountryStats = {
-    val sourceTweets = twitterStream.filter(source.isSentFrom)
+  def initCountryStats(sparkContext: SparkContext, source: Country, destination: Country): CountryStats =
+    CountryStats(source, destination, sparkContext.longAccumulator, sparkContext.longAccumulator, sparkContext.longAccumulator, sparkContext.longAccumulator)
+
+  def computeCountryStreams(twitterStream: ReceiverInputDStream[Status], countryStats: CountryStats): Unit = {
+    val sourceTweets = twitterStream.filter(countryStats.source.isSentFrom)
     val sourceRT = sourceTweets.filter(_.isRetweet).filter(_.getRetweetedStatus != null)
 
-    val mentions = sparkContext.longAccumulator
-    sourceTweets.filter(_.getUserMentionEntities.nonEmpty).count().foreachRDD(countRdd => countRdd.collect.foreach(mentions.add))
+    sourceTweets
+      .filter(_.getUserMentionEntities.nonEmpty)
+      .count()
+      .foreachRDD(countRdd => countRdd.collect.foreach(count => {
+        countryStats.mentions.add(count)
+        println(s"[${countryStats.source.name}] Mentions: $count new; ${countryStats.mentions.value} since startup")
+      }))
 
-    val sourceLangRT = sparkContext.longAccumulator
-    sourceRT.filter(tweet => source.isLang(tweet.getRetweetedStatus)).count().foreachRDD(countRdd => countRdd.collect.foreach(sourceLangRT.add))
+    sourceRT
+      .filter(tweet => countryStats.source.isLang(tweet.getRetweetedStatus))
+      .count()
+      .foreachRDD(countRdd => countRdd.collect.foreach(count => {
+        countryStats.sourceLangRT.add(count)
+        println(s"[${countryStats.source.name}] RT of '${countryStats.source.lang}' tweets: $count new; ${countryStats.sourceLangRT.value} since startup")
+      }))
 
-    val destinationCountryRT = sparkContext.longAccumulator
-    sourceRT.filter(tweet => destination.isSentFrom(tweet.getRetweetedStatus)).count().foreachRDD(countRdd => countRdd.collect.foreach(destinationCountryRT.add))
+    sourceRT
+      .filter(tweet => countryStats.destination.isSentFrom(tweet.getRetweetedStatus))
+      .count()
+      .foreachRDD(countRdd => countRdd.collect.foreach(count => {
+        countryStats.destinationCountryRT.add(count)
+        println(s"[${countryStats.source.name}] RT of tweets from ${countryStats.destination.name}: $count new; ${countryStats.destinationCountryRT.value} since startup")
+      }))
 
-    val destinationLangRT = sparkContext.longAccumulator
-    sourceRT.filter(tweet => destination.isLang(tweet.getRetweetedStatus)).count().foreachRDD(countRdd => countRdd.collect.foreach(destinationLangRT.add))
-
-    CountryStats(source, destination, mentions, sourceLangRT, destinationCountryRT, destinationLangRT)
-  }
-
-  def printCountryStreams(countryStats: CountryStats): Unit = {
-    println(s"[${countryStats.source.name}] Mentions: ${countryStats.mentions.value}")
-    println(s"[${countryStats.source.name}] RT of '${countryStats.source.lang}' tweets: ${countryStats.sourceLangRT.value}")
-    println(s"[${countryStats.source.name}] RT of tweets from ${countryStats.destination.name}: ${countryStats.destinationCountryRT.value}")
-    println(s"[${countryStats.source.name}] RT of '${countryStats.destination.lang}' tweets: ${countryStats.destinationLangRT.value}")
+    sourceRT
+      .filter(tweet => countryStats.destination.isLang(tweet.getRetweetedStatus))
+      .count()
+      .foreachRDD(countRdd => countRdd.collect.foreach(count => {
+        countryStats.destinationLangRT.add(count)
+        println(s"[${countryStats.source.name}] RT of '${countryStats.destination.lang}' tweets: $count new; ${countryStats.destinationLangRT.value} since startup")
+      }))
   }
 
   val sparkConf = new SparkConf()
@@ -71,17 +85,17 @@ object Application extends App {
     .set("spark.executor.extraJavaOptions", "-Dlog4j.configuration=log4j.xml")
     .setMaster("local[*]")
 
-  val streamingContext = new StreamingContext(sparkConf, Seconds(15))
+  val streamingContext = new StreamingContext(sparkConf, Minutes(1))
   val twitterStream = TwitterUtils.createStream(streamingContext, None, this.args)
 
   val france = Country("France", "FR", "fr")
   val usa = Country("United States", "US", "en")
 
-  val franceStats = computeCountryStreams(streamingContext.sparkContext, twitterStream, france, usa)
-  val usaStats = computeCountryStreams(streamingContext.sparkContext, twitterStream, usa, france)
+  val franceStats = initCountryStats(streamingContext.sparkContext, france, usa)
+  val usaStats = initCountryStats(streamingContext.sparkContext, usa, france)
 
-  printCountryStreams(franceStats)
-  printCountryStreams(usaStats)
+  computeCountryStreams(twitterStream, franceStats)
+  computeCountryStreams(twitterStream, usaStats)
 
   streamingContext.start()
   streamingContext.awaitTermination()
