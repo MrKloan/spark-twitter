@@ -45,20 +45,22 @@ object Application extends App {
   val frenchRetweetingUs = frRt.filter(tweet => usa.isSentFrom(tweet.getRetweetedStatus))
   val frenchRetweetingEnglish = frRt.filter(tweet => usa.isLang(tweet.getRetweetedStatus))
   val frenchRetweetingFrench = frRt.filter(tweet => france.isLang(tweet.getRetweetedStatus))
+  val frMentions = frTweets.filter(_.getUserMentionEntities.nonEmpty)
 
   val usTweets = twitterStream.filter(usa.isSentFrom)
   val usRt = usTweets.filter(_.isRetweet).filter(_.getRetweetedStatus != null)
   val usRetweetingFr = usRt.filter(tweet => france.isSentFrom(tweet.getRetweetedStatus))
   val usRetweetingFrench = usRt.filter(tweet => france.isLang(tweet.getRetweetedStatus))
+  val usMentions = usTweets.filter(_.getUserMentionEntities.nonEmpty)
 
-  frRt.map(_.getRetweetedStatus).print()
   frenchRetweetingFrench.count().map(count => count + " FR RT French").print()
   frenchRetweetingUs.count().map(count => count + " FR RT US").print()
   frenchRetweetingEnglish.count().map(count => count + " FR RT English").print()
+  frMentions.count().map(count => count + " mentions by FR users").print()
 
-  usRt.map(_.getRetweetedStatus).print()
   usRetweetingFr.count().map(count => count + " US RT FR").print()
   usRetweetingFrench.count().map(count => count + " US RT French").print()
+  usMentions.count().map(count => count + " mentions by US users").print()
 
   streamingContext.start()
   streamingContext.awaitTermination()
