@@ -11,16 +11,16 @@ final class Country(name: String, code: String, lang: String) {
     val place = tweet.getPlace
     val user = tweet.getUser
 
-    val isCountry = place != null && place.getCountry != null && place.getCountry.eq(this.name)
-    val isCountryCode = place != null && place.getCountryCode != null && place.getCountryCode.eq(this.code)
-    val isUserLocation = user != null && user.getLocation != null && (user.getLocation.contains(this.name) || user.getLocation.eq(this.code))
+    val isCountry = place != null && place.getCountry != null && place.getCountry.equals(this.name)
+    val isCountryCode = place != null && place.getCountryCode != null && place.getCountryCode.equals(this.code)
+    val isUserLocation = user != null && user.getLocation != null && (user.getLocation.contains(this.name) || user.getLocation.equals(this.code))
 
     isCountry || isCountryCode || isUserLocation
   }
 
   def isLang(tweet: Status): Boolean = {
-    val isTweetLang = tweet.getLang != null && tweet.getLang.eq(this.lang)
-    val isUserLang = tweet.getUser != null && tweet.getUser.getLang != null && tweet.getUser.getLang.eq(this.lang)
+    val isTweetLang = tweet.getLang != null && tweet.getLang.equals(this.lang)
+    val isUserLang = tweet.getUser != null && tweet.getUser.getLang != null && tweet.getUser.getLang.equals(this.lang)
 
     isTweetLang || isUserLang
   }
@@ -35,7 +35,7 @@ object Application extends App {
     .setMaster("local[*]")
 
   val streamingContext = new StreamingContext(sparkConf, Minutes(1))
-  val twitterStream = TwitterUtils.createStream(streamingContext, None /*, Array("#Spark")*/)
+  val twitterStream = TwitterUtils.createStream(streamingContext, None, this.args)
 
   val france = new Country("France", "FR", "fr")
   val usa = new Country("United States", "US", "en")
@@ -51,9 +51,12 @@ object Application extends App {
   val usRetweetingFr = usRt.filter(tweet => france.isSentFrom(tweet.getRetweetedStatus))
   val usRetweetingFrench = usRt.filter(tweet => france.isLang(tweet.getRetweetedStatus))
 
+  frRt.map(_.getRetweetedStatus).print()
   frenchRetweetingFrench.count().map(count => count + " FR RT French").print()
   frenchRetweetingUs.count().map(count => count + " FR RT US").print()
   frenchRetweetingEnglish.count().map(count => count + " FR RT English").print()
+
+  usRt.map(_.getRetweetedStatus).print()
   usRetweetingFr.count().map(count => count + " US RT FR").print()
   usRetweetingFrench.count().map(count => count + " US RT French").print()
 
