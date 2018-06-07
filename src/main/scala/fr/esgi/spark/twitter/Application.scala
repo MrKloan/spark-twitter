@@ -1,11 +1,12 @@
 package fr.esgi.spark.twitter
 
 import org.apache.spark.SparkConf
+import org.apache.spark.streaming.dstream.{DStream, ReceiverInputDStream}
 import org.apache.spark.streaming.twitter.TwitterUtils
 import org.apache.spark.streaming.{Minutes, StreamingContext}
 import twitter4j.Status
 
-final class Country(name: String, code: String, lang: String) {
+final case class Country(name: String, code: String, lang: String) {
 
   def isSentFrom(tweet: Status): Boolean = {
     val place = tweet.getPlace
@@ -26,7 +27,35 @@ final class Country(name: String, code: String, lang: String) {
   }
 }
 
+final case class CountryStreams(
+  source: Country,
+  destination: Country,
+  mentions: DStream[Status],
+  sourceLangRT: DStream[Status],
+  destinationCountryRT: DStream[Status],
+  destinationLangRT: DStream[Status]
+)
+
 object Application extends App {
+
+  def computeCountryStreams(twitterStream: ReceiverInputDStream[Status], source: Country, destination: Country): CountryStreams = {
+    val sourceTweets = twitterStream.filter(source.isSentFrom)
+
+    val mentions = sourceTweets.filter(_.getUserMentionEntities.nonEmpty)
+    val sourceRT = sourceTweets.filter(_.isRetweet).filter(_.getRetweetedStatus != null)
+    val sourceLangRT = sourceRT.filter(tweet => source.isLang(tweet.getRetweetedStatus))
+    val destinationCountryRT = sourceRT.filter(tweet => destination.isSentFrom(tweet.getRetweetedStatus))
+    val destinationLangRT = sourceRT.filter(tweet => destination.isLang(tweet.getRetweetedStatus))
+
+    CountryStreams(source, destination, mentions, sourceLangRT, destinationCountryRT, destinationLangRT)
+  }
+
+  def printCountryStreams(countryStreams: CountryStreams): Unit = {
+    countryStreams.mentions.count().map(count => countryStreams.source.name + " mentions: " + count).print()
+    countryStreams.sourceLangRT.count().map(count => countryStreams.source.name + " RT of " + countryStreams.source.lang + " tweets: " + count).print()
+    countryStreams.destinationCountryRT.count().map(count => countryStreams.source.name + " RT of " + countryStreams.destination.name + " tweets: " + count).print()
+    countryStreams.destinationLangRT.count().map(count => countryStreams.source.name + " RT of " + countryStreams.destination.lang + " tweets: " + count).print()
+  }
 
   val sparkConf = new SparkConf()
     .setAppName("Twitter Application")
@@ -37,30 +66,14 @@ object Application extends App {
   val streamingContext = new StreamingContext(sparkConf, Minutes(1))
   val twitterStream = TwitterUtils.createStream(streamingContext, None, this.args)
 
-  val france = new Country("France", "FR", "fr")
-  val usa = new Country("United States", "US", "en")
+  val france = Country("France", "FR", "fr")
+  val usa = Country("United States", "US", "en")
 
-  val frTweets = twitterStream.filter(france.isSentFrom)
-  val frRt = frTweets.filter(_.isRetweet).filter(_.getRetweetedStatus != null)
-  val frenchRetweetingUs = frRt.filter(tweet => usa.isSentFrom(tweet.getRetweetedStatus))
-  val frenchRetweetingEnglish = frRt.filter(tweet => usa.isLang(tweet.getRetweetedStatus))
-  val frenchRetweetingFrench = frRt.filter(tweet => france.isLang(tweet.getRetweetedStatus))
-  val frMentions = frTweets.filter(_.getUserMentionEntities.nonEmpty)
+  val franceStreams = computeCountryStreams(twitterStream, france, usa)
+  val usaStreams = computeCountryStreams(twitterStream, usa, france)
 
-  val usTweets = twitterStream.filter(usa.isSentFrom)
-  val usRt = usTweets.filter(_.isRetweet).filter(_.getRetweetedStatus != null)
-  val usRetweetingFr = usRt.filter(tweet => france.isSentFrom(tweet.getRetweetedStatus))
-  val usRetweetingFrench = usRt.filter(tweet => france.isLang(tweet.getRetweetedStatus))
-  val usMentions = usTweets.filter(_.getUserMentionEntities.nonEmpty)
-
-  frenchRetweetingFrench.count().map(count => count + " FR RT French").print()
-  frenchRetweetingUs.count().map(count => count + " FR RT US").print()
-  frenchRetweetingEnglish.count().map(count => count + " FR RT English").print()
-  frMentions.count().map(count => count + " mentions by FR users").print()
-
-  usRetweetingFr.count().map(count => count + " US RT FR").print()
-  usRetweetingFrench.count().map(count => count + " US RT French").print()
-  usMentions.count().map(count => count + " mentions by US users").print()
+  printCountryStreams(franceStreams)
+  printCountryStreams(usaStreams)
 
   streamingContext.start()
   streamingContext.awaitTermination()
