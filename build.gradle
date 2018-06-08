@@ -20,12 +20,18 @@ dependencies {
     compile group: 'org.apache.bahir', name: "spark-streaming-twitter_${scalaVersion}", version: sparkVersion
 }
 
+jar {
+    manifest {
+        attributes 'Main-Class': mainClass
+    }
+}
+
 shadowJar {
     zip64 = true
 }
 
 task run(type: JavaExec, dependsOn: classes) {
-    main = 'fr.esgi.spark.twitter.Application'
+    main = mainClass
     classpath sourceSets.main.runtimeClasspath
     classpath configurations.runtime
 }

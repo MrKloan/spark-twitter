@@ -84,6 +84,8 @@ object Application extends App {
     computeDestinationLangRT(sourceRT, countryStats)
   }
 
+  println(s"Active filters: ${this.args.reduceOption((a, b) => a + ", " + b)}")
+
   val sparkConf = new SparkConf()
     .setAppName("Twitter Application")
     .set("spark.ui.showConsoleProgress", "false")
